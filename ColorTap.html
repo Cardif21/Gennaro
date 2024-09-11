@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="script.js" defer></script>
+    <title>ColorTap</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            background-color: #f0f0f0;
+        }
+        #color-name {
+            font-size: 2em;
+            margin: 20px 0;
+        }
+        #score, #time-left {
+            font-size: 1.5em;
+            margin: 10px 0;
+        }
+        #start-button, #start-new-game-button {
+            font-size: 1.2em;
+            padding: 10px 20px;
+            margin: 20px;
+            cursor: pointer;
+        }
+        #button-container {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 10px;
+            max-width: 400px;
+            margin: 0 auto;
+        }
+        .color-button {
+            width: 80px;
+            height: 80px;
+            margin: 10px;
+            border-radius: 50%;
+            border: 2px solid #aaa;
+            box-shadow: inset 0 0 5px rgba(0, 0, 0, 0.2);
+            cursor: pointer;
+            outline: none;
+            transition: opacity 0.3s;
+        }
+        #leaderboard {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: white;
+            border: 1px solid #ddd;
+            padding: 10px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+            display: none;
+            max-width: 300px;
+            overflow-y: auto;
+            max-height: 400px;
+        }
+        #leaderboard.show {
+            display: block;
+        }
+        #back-to-index {
+            display: block;
+            margin: 20px auto;
+            font-size: 1.2em;
+            padding: 10px 20px;
+            cursor: pointer;
+        }
+        #leaderboard-toggle {
+            display: block;
+            margin: 20px auto;
+            font-size: 1.2em;
+            padding: 10px 20px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <h1 id="color-name">COLOR</h1>
+        <div id="score">SCORE: 0</div>
+        <div id="time-left">10S</div>
+        <button id="start-button">START GAME</button>
+        <button id="start-new-game-button" style="display: none;">START NEW GAME</button>
+        <div id="button-container"></div>
+    </div>
+    <button id="back-to-index">Back to Menu</button>
+    
+    <div id="leaderboard"></div>
+
+    <script type="module">
+        // Import the functions you need from the SDKs you need
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js";
+        import { getFirestore, collection, addDoc, getDocs, query, orderBy, limit, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js";
+        import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-auth.js";
+
+        // Your web app's Firebase configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyDYtLmrzqTcZXxd5LDGSkJs76VzE0dvtBY",
+            authDomain: "qi-tester-game.firebaseapp.com",
+            databaseURL: "https://qi-tester-game-default-rtdb.firebaseio.com",
+            projectId: "qi-tester-game",
+            storageBucket: "qi-tester-game.appspot.com",
+            messagingSenderId: "951469093931",
+            appId: "1:951469093931:web:3436fe36657bf90102e66e",
+            measurementId: "G-74QJ79FM9B"
+        };
+
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+
+        // Authenticate anonymously
+        signInAnonymously(auth)
+            .catch((error) => {
+                console.error("Authentication error:", error);
+            });
+
+        const baseColors = ["red", "blue", "green", "yellow"];
+        let colors = [...baseColors];
+        let targetColor = "";
+        let score = 0;
+        let timeLeft = 10;
+        let timer;
+        let startTime;
+        let responseTimes = [];
+
+        const colorNameElement = document.getElementById("color-name");
+        const scoreElement = document.getElementById("score");
+        const timeLeftElement = document.getElementById("time-left");
+        const startButton = document.getElementById("start-button");
+        const startNewGameButton = document.getElementById("start-new-game-button");
+        const buttonContainer = document.getElementById("button-container");
+        const leaderboard = document.getElementById("leaderboard");
+        const backToIndexButton = document.getElementById("back-to-index");
+        const leaderboardToggle = document.getElementById("leaderboard-toggle");
+
+        // Lista di colori aggiuntivi
+        const additionalColors = ["orange", "purple", "cyan", "pink", "black", "gray"];
+
+        function startGame() {
+            score = 0;
+            timeLeft = 10;
+            responseTimes = [];
+            colors = [...baseColors]; // Ripristina i colori di base all'inizio del gioco
+            scoreElement.textContent = "SCORE: " + score;
+            timeLeftElement.textContent = timeLeft + "S";
+            startButton.style.display = "none";
+            startNewGameButton.style.display = "none";
+            createInitialButtons();
+            setRandomTargetColor();
+            startTimer();
+            startTime = new Date(); // Iniziamo a cronometrare il tempo del gioco
+        }
+
+        function startTimer() {
+            timer = setInterval(() => {
+                timeLeft--;
+                timeLeftElement.textContent = timeLeft + "S";
+                if (timeLeft <= 0) {
+                    clearInterval(timer);
+                    endGame();
+                }
+            }, 1000);
+        }
+
+        function createInitialButtons() {
+            buttonContainer.innerHTML = ""; // Pulire il contenitore prima di aggiungere i pulsanti
+            colors.forEach(color => {
+                createButton(color);
+            });
+        }
+
+        function setRandomTargetColor() {
+            // Aggiungi un nuovo colore ogni 20 livelli
+            if (score > 0 && score % 20 === 0 && colors.length < baseColors.length + additionalColors.length) {
+                const newColor = additionalColors[colors.length - baseColors.length];
+                if (!colors.includes(newColor)) {
+                    colors.push(newColor);
+                    createButton(newColor); // Crea un nuovo pulsante per il nuovo colore
+                }
+            }
+
+            targetColor = colors[Math.floor(Math.random() * colors.length)];
+            colorNameElement.textContent = targetColor;
+            setColorButtons();
+        }
+
+        function createButton(color) {
+            const button = document.createElement("button");
+            button.classList.add("color-button");
+            button.style.backgroundColor = color;
+            button.onclick = () => checkColor(color);
+            buttonContainer.appendChild(button);
+        }
+
+        function setColorButtons() {
+            const shuffledColors = [...colors].sort(() => Math.random() - 0.5);
+            const buttons = buttonContainer.querySelectorAll(".color-button");
+
+            buttons.forEach((button, index) => {
+                if (index < shuffledColors.length) {
+                    button.style.backgroundColor = shuffledColors[index];
+                    button.onclick = () => checkColor(shuffledColors[index]);
+                    button.style.display = "block"; // Mostra il pulsante se è nascosto
+                } else {
+                    button.style.display = "none"; // Nascondi i pulsanti non usati
+                }
+            });
+        }
+
+        function checkColor(selectedColor) {
+            const currentTime = new Date();
+            const responseTime = (currentTime - startTime) / 1000; // Tempo in secondi
+            responseTimes.push(responseTime); // Memorizziamo il tempo di risposta
+
+            if (selectedColor === targetColor) {
+                score++;
+                scoreElement.textContent = "SCORE: " + score;
+                setRandomTargetColor();
+                timeLeft += 2; // Aggiunta di 2 secondi come ricompensa per una risposta corretta
+                startTime = new Date(); // Reimposta il tempo di risposta per la prossima domanda
+            } else {
+                clearInterval(timer);
+                endGame(); // Termina il gioco se si sbaglia
+                return;
+            }
+        }
+
+        function calculateIQ() {
+            if (responseTimes.length === 0) return 0;
+
+            // Calcolo del tempo di risposta medio
+            const averageResponseTime = responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length;
+
+            // Base IQ e bonus per il punteggio, partendo da un QI base più alto
+            const baseIQ = 10;
+            const scoreBonus = Math.log(score + 1) * 10;  // Bonus logaritmico più aggressivo
+
+            // Penalità basata sul tempo medio di risposta
+            const timePenalty = Math.max(averageResponseTime - 1, 0) * 10;  // Penalità più leggera
+
+            // Aggiusta il calcolo del QI
+            const iq = baseIQ + scoreBonus - timePenalty;
+
+            // Assicura che il QI sia sempre positivo e non inferiore a un valore minimo
+            return Math.max(50, Math.round(iq)); // Cambiato da 10 a 50 per un valore minimo più alto
+        }
+
+        function endGame() {
+            const iq = calculateIQ();
+            alert(`Game over! Your score is: ${score}. Your estimated IQ is: ${Math.round(iq)}`);
+            saveIQ(iq); // Salva il punteggio su Firebase
+            startNewGameButton.style.display = "block"; // Mostra il pulsante "Start New Game"
+        }
+
+        function saveIQ(iq) {
+            const user = auth.currentUser;
+            if (user) {
+                const uid = user.uid;
+                addDoc(collection(db, 'qi_scores'), {
+                    userId: uid,
+                    game: 'ColorTap',  // Nome del minigioco
+                    qi: iq,
+                    level: score, // Modificato per usare il punteggio come livello
+                    timestamp: serverTimestamp()
+                }).then(() => {
+                    console.log("IQ score saved successfully.");
+                    updateLeaderboard(); // Aggiorna la classifica dopo aver salvato
+                }).catch((error) => {
+                    console.error("Error saving IQ score:", error);
+                });
+            }
+        }
+
+        async function updateLeaderboard() {
+            leaderboard.innerHTML = "<h2>Leaderboard</h2>";
+            const q = query(collection(db, 'qi_scores'), orderBy('iq', 'desc'), limit(10));
+            const querySnapshot = await getDocs(q);
+
+            querySnapshot.forEach((doc) => {
+                const data = doc.data();
+                const div = document.createElement('div');
+                div.textContent = `Level: ${data.level}, IQ: ${data.iq}`;
+                leaderboard.appendChild(div);
+            });
+        }
+
+        startButton.addEventListener("click", startGame);
+        startNewGameButton.addEventListener("click", startGame);
+        backToIndexButton.addEventListener("click", () => {
+            window.location.href = "index.html"; // Modifica con il percorso corretto per la pagina di indice
+        });
+
+        leaderboardToggle.addEventListener("click", () => {
+            leaderboard.classList.toggle("show");
+        });
+    </script>
+</body>
+</html>
+
+
