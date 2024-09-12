@@ -1,0 +1,364 @@
+﻿<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ColorTube</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+      background-color: #f4f4f4;
+    }
+
+    h1 {
+      margin-bottom: 2vh;
+      font-size: 5vw; /* Testo dinamico */
+      text-align: center;
+    }
+
+    #info-container {
+      text-align: center;
+      margin-bottom: 2vh;
+    }
+
+    #game-board {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); /* Adatta il numero di colonne automaticamente */
+      grid-auto-rows: 1fr;
+      grid-gap: 1vw;
+      width: 90vw; /* Occupa il 90% della larghezza disponibile */
+      height: 50vh; /* Mantiene le provette entro un'altezza massima */
+      max-height: 50vh; /* Limita l'altezza massima del contenitore a metà dello schermo */
+      align-items: center; /* Allinea verticalmente le provette */
+      justify-items: center; /* Centra orizzontalmente le provette */
+    }
+
+    .tube {
+      width: 100%; /* La larghezza delle provette si adatta automaticamente */
+      max-width: 120px; /* Limita la larghezza massima */
+      height: 100%; /* Le provette si adattano all'altezza del contenitore */
+      max-height: 100px; /* Limita l'altezza massima */
+      border: 2px solid #333;
+      border-radius: 10px;
+      background-color: white;
+      display: flex;
+      flex-direction: column-reverse;
+    }
+
+    .color {
+      width: 100%;
+      height: 25%; /* Ogni colore occupa il 25% della provetta */
+      transition: background-color 0.3s;
+    }
+
+    #button-container {
+      display: flex;
+      justify-content: center;
+      margin-top: 3vh;
+    }
+
+    button {
+      padding: 10px 20px;
+      background-color: #28a745;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      margin: 0 10px; /* Margine tra i pulsanti */
+      cursor: pointer;
+      font-size: 4vw; /* Font dinamico */
+    }
+
+    button:hover {
+      background-color: #218838;
+    }
+
+    #timer, #level-info {
+      font-size: 4vw; /* Testo dinamico per timer e livello */
+    }
+
+    #back-button {
+      background-color: #007bff;
+    }
+
+    #back-button:hover {
+      background-color: #0056b3;
+    }
+
+    /* Media query per schermi molto piccoli */
+    @media (max-width: 600px) {
+      .tube {
+        max-width: 80px; /* Riduce la larghezza massima delle provette su schermi piccoli */
+        max-height: 80px; /* Riduce l'altezza massima delle provette */
+      }
+
+      button {
+        padding: 8px 16px;
+        font-size: 3.5vw; /* Font dinamico ridotto per pulsanti */
+      }
+
+      #timer, #level-info {
+        font-size: 3.5vw; /* Testo dinamico ridotto per timer e livello */
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <h1>ColorTube</h1>
+  
+  <div id="info-container">
+    <div id="timer">Time: 20s</div>
+    <div id="level-info">Level: 1 | IQ: 0</div>
+  </div>
+
+  <div id="game-board">
+    <!-- Le provette verranno aggiunte qui dinamicamente -->
+    <div class="tube"><div class="color"></div></div>
+    <div class="tube"><div class="color"></div></div>
+    <div class="tube"><div class="color"></div></div>
+    <div class="tube"><div class="color"></div></div>
+  </div>
+  
+  <div id="button-container">
+    <button id="new-game-button">New Game</button>
+    <button id="back-button">Back to Menu</button>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js";
+    import { getFirestore, collection, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js";
+    import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-auth.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyDYtLmrzqTcZXxd5LDGSkJs76VzE0dvtBY",
+      authDomain: "qi-tester-game.firebaseapp.com",
+      projectId: "qi-tester-game",
+      storageBucket: "qi-tester-game.appspot.com",
+      messagingSenderId: "951469093931",
+      appId: "1:951469093931:web:3436fe36657bf90102e66e",
+      measurementId: "G-74QJ79FM9B"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const auth = getAuth(app);
+
+    let tubes = [];
+    let selectedTube = null;
+    let score = 0;
+    let level = 1;
+    let qi = 130;
+    let addedColors = [];
+    let additionalColors = ['orange', 'purple', 'cyan', 'pink', 'yellow', 'black'];
+    let timer = 20;
+    let timerInterval;
+
+    const gameBoard = document.getElementById('game-board');
+
+    function createTube() {
+      const tube = document.createElement('div');
+      tube.classList.add('tube');
+      tube.onclick = () => selectTube(tube);
+      return tube;
+    }
+
+    function createColorBlock(color) {
+      const block = document.createElement('div');
+      block.classList.add('color');
+      block.style.backgroundColor = color;
+      return block;
+    }
+
+    function selectTube(tube) {
+      if (selectedTube === null) {
+        selectedTube = tube;
+        tube.style.borderColor = 'yellow'; 
+      } else {
+        moveColor(selectedTube, tube);
+        selectedTube.style.borderColor = '#333'; 
+        selectedTube = null;
+        if (!canMakeMove()) {
+          clearInterval(timerInterval);
+          alert('Game Over! Non ci sono più mosse disponibili.');
+        }
+      }
+    }
+
+    function moveColor(fromTube, toTube) {
+      const fromBlocks = Array.from(fromTube.children);
+      const toBlocks = Array.from(toTube.children);
+
+      if (fromBlocks.length > 0) {
+        const topFromColor = fromBlocks[fromBlocks.length - 1].style.backgroundColor;
+        if (toBlocks.length === 0 || toBlocks[toBlocks.length - 1].style.backgroundColor === topFromColor) {
+          const movedBlock = fromTube.removeChild(fromBlocks[fromBlocks.length - 1]);
+          toTube.appendChild(movedBlock);
+          checkWinCondition();
+        }
+      }
+    }
+
+    function checkWinCondition() {
+      const isWin = tubes.every(tube => {
+        const blocks = Array.from(tube.children);
+        if (blocks.length === 0) return true;
+        const firstColor = blocks[0].style.backgroundColor;
+        return blocks.every(block => block.style.backgroundColor === firstColor);
+      });
+
+      const hasEmptyTube = tubes.some(tube => tube.children.length === 0);
+
+      if (isWin && hasEmptyTube) {
+        score += 10;
+        level++;
+        timer += 5;
+        updateQI();
+        alert(`Level ${level - 1} completed! Score: ${score}. Added time: 5 second`);
+        setupGame();
+      }
+    }
+
+    function updateQI() {
+      const minQI = 50;
+      const maxQI = 200;
+
+      qi = (130 * level) / 10;
+      if (qi < minQI) qi = minQI;
+      if (qi > maxQI) qi = maxQI;
+      qi = Math.round(qi);
+
+      document.getElementById('level-info').textContent = `Level: ${level} | IQ: ${qi}`;
+    }
+
+    function setupGame() {
+      gameBoard.innerHTML = '';
+      tubes = [];
+      let currentColors = ['red', 'blue', 'green', ...addedColors];
+
+      if (level > 1 && level % 2 === 0 && additionalColors.length > 0) {
+        const newColor = additionalColors.shift();
+        addedColors.push(newColor);
+        currentColors.push(newColor);
+      }
+
+      const numTubes = Math.max(4, currentColors.length + 1);
+
+      for (let i = 0; i < numTubes; i++) {
+        const tube = createTube();
+        tubes.push(tube);
+        gameBoard.appendChild(tube);
+      }
+
+      const shuffledColors = [];
+      currentColors.forEach(color => {
+        for (let i = 0; i < 2; i++) {
+          shuffledColors.push(color);
+        }
+      });
+      shuffleArray(shuffledColors);
+
+      tubes.forEach(tube => {
+        for (let i = 0; i < 2; i++) {
+          if (shuffledColors.length > 0) {
+            tube.appendChild(createColorBlock(shuffledColors.pop()));
+          }
+        }
+      });
+
+      if (timerInterval) clearInterval(timerInterval);
+      startTimer();
+    }
+
+    function canMakeMove() {
+  for (let i = 0; i < tubes.length; i++) {
+    const fromBlocks = Array.from(tubes[i].children);
+    if (fromBlocks.length === 0) continue;
+    const topFromColor = fromBlocks[fromBlocks.length - 1].style.backgroundColor;
+
+    for (let j = 0; j < tubes.length; j++) { // Qui correggiamo da "i" a "j"
+      if (i === j) continue;
+      const toBlocks = Array.from(tubes[j].children);
+      if (toBlocks.length === 0 || toBlocks[toBlocks.length - 1].style.backgroundColor === topFromColor) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+
+    function startTimer() {
+      const timerElement = document.getElementById('timer');
+      timerElement.textContent = `Time left: ${timer}s`;
+
+      timerInterval = setInterval(() => {
+        timer--;
+        timerElement.textContent = `Time left: ${timer}s`;
+
+        if (timer <= 0) {
+          clearInterval(timerInterval);
+          alert('Game Over! Time is up.');
+          saveScoreToFirebase();
+        }
+      }, 1000);
+    }
+
+    function saveScoreToFirebase() {
+      const user = auth.currentUser;
+      if (user) {
+        addDoc(collection(db, 'qi_scores'), {
+          userId: user.uid,
+          game: 'ColorTube',
+          level: level,
+          qi: Math.round(qi),
+          timestamp: serverTimestamp()
+        })
+        .then(() => {
+          console.log("Punteggio salvato correttamente.");
+        })
+        .catch((error) => {
+          console.error("Errore durante il salvataggio del punteggio:", error);
+        });
+      }
+    }
+
+    function shuffleArray(array) {
+      for (let i = array.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [array[i], array[j]] = [array[j], array[i]];
+      }
+    }
+
+    document.getElementById('new-game-button').addEventListener('click', () => {
+      score = 0;
+      level = 1;
+      qi = 130; 
+      timer = 20; 
+      addedColors = []; 
+      additionalColors = ['orange', 'purple', 'cyan', 'pink', 'yellow', 'black'];
+      setupGame();
+    });
+
+    document.getElementById('back-button').addEventListener('click', () => {
+      window.location.href = 'index.html';
+    });
+
+    signInAnonymously(auth)
+      .then(() => {
+        console.log("Autenticazione anonima avvenuta con successo.");
+      })
+      .catch((error) => {
+        console.error("Errore durante l'autenticazione anonima:", error);
+      });
+
+    setupGame();
+  </script>
+
+</body>
+</html>

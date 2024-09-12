@@ -1,0 +1,322 @@
+﻿<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FastN</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      background-color: #f0f0f0;
+      margin: 0;
+    }
+
+    .game-container {
+      text-align: center;
+    }
+
+    .number-display {
+      font-size: 3rem;
+      margin-bottom: 20px;
+    }
+
+    .options {
+      display: flex;
+      justify-content: center;
+      margin-bottom: 20px;
+    }
+
+    .option {
+      background-color: #007bff;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      margin: 0 10px;
+      cursor: pointer;
+      font-size: 1.5rem;
+      transition: background-color 0.2s ease;
+    }
+
+    .option:hover {
+      background-color: #0056b3;
+    }
+
+    .timer {
+      font-size: 2rem;
+      margin-bottom: 10px;
+    }
+
+    .message {
+      font-size: 1.2rem;
+      color: green;
+    }
+
+    .game-over {
+      font-size: 1.5rem;
+      color: red;
+      display: none;
+    }
+
+    .start-button, .menu-button {
+      background-color: #28a745;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 5px;
+      font-size: 1.5rem;
+      cursor: pointer;
+      margin-top: 20px;
+    }
+
+    .start-button:hover, .menu-button:hover {
+      background-color: #218838;
+    }
+
+    .level {
+      font-size: 1.5rem;
+      margin-bottom: 20px;
+    }
+
+    .qi {
+      font-size: 1.5rem;
+      margin-top: 20px;
+    }
+
+    .option.disabled {
+      background-color: #6c757d;
+      cursor: not-allowed;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="game-container">
+    <div class="level" id="level">Level: 1</div>
+    <div class="timer" id="timer">Time left: 5s</div>
+    <div class="number-display" id="number-display">0</div>
+    <div class="options">
+      <button class="option" id="option1">0</button>
+      <button class="option" id="option2">0</button>
+      <button class="option" id="option3">0</button>
+    </div>
+    <div class="message" id="message"></div>
+    <div class="qi" id="qi">IQ: 0</div>
+    <div class="game-over" id="game-over">Game Over!</div>
+    <button class="start-button" id="start-button">Start New Game</button>
+    <button class="menu-button" id="menu-button">Back to Menu</button>
+  </div>
+
+  <script type="module">
+    // Import the Firebase functions from the CDN
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js";
+    import { getFirestore, collection, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js";
+    import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-auth.js";
+
+    // Firebase configuration
+    const firebaseConfig = {
+      apiKey: "AIzaSyDYtLmrzqTcZXxd5LDGSkJs76VzE0dvtBY",
+      authDomain: "qi-tester-game.firebaseapp.com",
+      databaseURL: "https://qi-tester-game-default-rtdb.firebaseio.com",
+      projectId: "qi-tester-game",
+      storageBucket: "qi-tester-game.appspot.com",
+      messagingSenderId: "951469093931",
+      appId: "1:951469093931:web:3436fe36657bf90102e66e",
+      measurementId: "G-74QJ79FM9B"
+    };
+
+    // Initialize Firebase
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const auth = getAuth(app);
+
+    // Sign in anonymously
+    signInAnonymously(auth)
+      .then(() => {
+        console.log("Autenticazione anonima riuscita.");
+      })
+      .catch((error) => {
+        console.error("Errore di autenticazione:", error);
+      });
+
+    const numberDisplay = document.getElementById('number-display');
+    const timerDisplay = document.getElementById('timer');
+    const messageDisplay = document.getElementById('message');
+    const gameOverDisplay = document.getElementById('game-over');
+    const startButton = document.getElementById('start-button');
+    const menuButton = document.getElementById('menu-button');
+    const levelDisplay = document.getElementById('level');
+    const qiDisplay = document.getElementById('qi');
+    const options = [
+      document.getElementById('option1'),
+      document.getElementById('option2'),
+      document.getElementById('option3')
+    ];
+
+    let currentResult = 0;
+    let correctAnswer = 0;
+    let timer = 5;
+    let timerInterval;
+    let level = 1;
+    let correctAnswersCount = 0;
+    let qi = 0;
+
+    function generateRandomNumber() {
+      return Math.floor(Math.random() * 10) + 1;
+    }
+
+    function startGame() {
+      resetGame();
+      nextRound();
+      startTimer();
+    }
+
+    function resetGame() {
+      currentResult = 0;
+      timer = 5;
+      level = 1;
+      correctAnswersCount = 0;
+      qi = 0;
+      timerDisplay.textContent = `Time left: ${timer}s`;
+      levelDisplay.textContent = `Level: ${level}`;
+      qiDisplay.textContent = `IQ: ${qi}`;
+      messageDisplay.textContent = '';
+      gameOverDisplay.style.display = 'none';
+      startButton.style.display = 'none';
+      menuButton.style.display = 'none';
+      options.forEach(option => {
+        option.classList.remove('disabled');
+        option.onclick = () => checkAnswer(Number(option.textContent));
+      });
+    }
+
+    function startTimer() {
+      timerInterval = setInterval(() => {
+        timer--;
+        timerDisplay.textContent = `Time left: ${timer}s`;
+
+        if (timer <= 0) {
+          endGame();
+        }
+      }, 1000);
+    }
+
+    function nextRound() {
+      let num1 = generateRandomNumber();
+      let num2 = generateRandomNumber();
+      let operation = '+';
+
+      if (level > 5 && level <= 15) {
+        if (num1 < num2) {
+          [num1, num2] = [num2, num1];
+        }
+        operation = '-';
+      } else if (level > 15 && level <= 30) {
+        operation = ['+', '-', '*'][Math.floor(Math.random() * 3)];
+      } else if (level > 30) {
+        operation = ['+', '-', '*', '/'][Math.floor(Math.random() * 4)];
+        if (operation === '/') {
+          num2 = Math.min(num2, num1);
+          num1 = num1 * num2;
+        }
+      }
+
+      currentResult = calculateResult(num1, num2, operation);
+
+      numberDisplay.textContent = `${num1} ${operation} ${num2}`;
+
+      correctAnswer = currentResult;
+      const wrongAnswer1 = correctAnswer + Math.floor(Math.random() * 10) - 5;
+      const wrongAnswer2 = correctAnswer + Math.floor(Math.random() * 10) - 5;
+
+      const answers = [correctAnswer, wrongAnswer1, wrongAnswer2].sort(() => Math.random() - 0.5);
+
+      options.forEach((option, index) => {
+        option.textContent = answers[index];
+        option.onclick = () => checkAnswer(answers[index]);
+      });
+    }
+
+    function calculateResult(num1, num2, operation) {
+      switch (operation) {
+        case '+': return num1 + num2;
+        case '-': return num1 - num2;
+        case '*': return num1 * num2;
+        case '/': return num1 / num2;
+      }
+    }
+
+    function updateQI() {
+      const minQI = 50;
+      const maxQI = 200;
+      // Calcolo del nuovo QI
+      let newQI = (correctAnswersCount * 130) / 50;
+      newQI = Math.min(Math.max(newQI, minQI), maxQI);
+
+      // Aggiorna la variabile qi con il nuovo valore calcolato
+      qi = Math.round(newQI);
+
+      // Aggiorna la visualizzazione del QI
+      qiDisplay.textContent = `IQ: ${qi}`;
+    }
+
+    function checkAnswer(selectedAnswer) {
+      if (selectedAnswer === correctAnswer) {
+        messageDisplay.textContent = 'Right!';
+        messageDisplay.style.color = 'green';
+        correctAnswersCount++;
+        updateQI();
+        level++;
+        timer += 2;
+        levelDisplay.textContent = `Level: ${level}`;
+        nextRound();
+      } else {
+        messageDisplay.textContent = 'Wrong!';
+        messageDisplay.style.color = 'red';
+        endGame();
+      }
+    }
+
+    function endGame() {
+      clearInterval(timerInterval);
+      numberDisplay.textContent = '0';
+      gameOverDisplay.style.display = 'block';
+      startButton.style.display = 'block';
+      menuButton.style.display = 'block';
+      options.forEach(option => option.classList.add('disabled'));
+      saveScore();
+    }
+
+    function saveScore() {
+      const user = auth.currentUser;
+      if (user) {
+        addDoc(collection(db, 'qi_scores'), {
+          userId: user.uid,
+          game: 'FastN',  // Nome del gioco
+          level: level,
+          qi: Math.round(qi),
+          timestamp: serverTimestamp()
+        })
+        .then(() => {
+          console.log("Punteggio salvato correttamente.");
+        })
+        .catch((error) => {
+          console.error("Errore durante il salvataggio del punteggio:", error);
+        });
+      }
+    }
+
+    // Funzione per tornare alla pagina principale (index.html)
+    function goToHome() {
+      window.location.href = 'index.html';
+    }
+
+    startButton.addEventListener('click', startGame);
+    menuButton.addEventListener('click', goToHome);
+  </script>
+
+</body>
+</html>

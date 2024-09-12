@@ -1,0 +1,320 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CellTap</title>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+      background-color: #f7f7f7;
+    }
+
+    #gameContainer {
+      text-align: center;
+    }
+
+    h1 {
+      font-size: 6vw; /* Titolo adattabile */
+    }
+
+    #grid {
+      display: grid;
+      grid-template-columns: repeat(4, 20vw); /* Ogni cella sarà il 20% della larghezza dello schermo */
+      grid-template-rows: repeat(4, 20vw); /* Altezza proporzionata alla larghezza */
+      gap: 2vw; /* Riduce lo spazio tra le celle su schermi piccoli */
+      margin: 10px auto;
+      display: none;
+    }
+
+    .cell {
+      width: 20vw;
+      height: 20vw;
+      background-color: #ccc;
+      border: 1px solid #999;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-size: 4vw; /* Dimensione del testo dinamica */
+      cursor: pointer;
+      transition: background-color 0.3s;
+    }
+
+    .active {
+      background-color: #4caf50;
+    }
+
+    #score,
+    #timer,
+    #gameOver {
+      font-size: 4vw; /* Dimensione del testo adattabile */
+      margin-top: 10px;
+    }
+
+    #gameOver {
+      color: red;
+      display: none;
+    }
+
+    #startButton,
+    #newGameButton,
+    #backToMenuButton {
+      padding: 5vw 10vw; /* Padding dinamico */
+      font-size: 4vw; /* Font dinamico */
+      cursor: pointer;
+      background-color: #28a745;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      margin-top: 20px;
+    }
+
+    #backToMenuButton {
+      background-color: #007bff;
+      display: inline-block;
+    }
+
+    #newGameButton {
+      display: none;
+    }
+
+    #leaderboard {
+      margin-top: 20px;
+    }
+
+    #leaderboardList {
+      list-style-type: none;
+      padding: 0;
+    }
+  </style>
+</head>
+
+<body>
+
+  <div id="gameContainer">
+    <h1>CellTap</h1>
+    <div id="grid"></div>
+    <div id="score">Score: 0</div>
+    <div id="timer">Time left: 10s</div>
+    <div id="gameOver">Game Over!</div>
+    <button id="startButton">Start</button>
+    <button id="newGameButton">Start New Game</button>
+    <button id="backToMenuButton">Back to Menu</button>
+
+    <div id="leaderboard">
+      <h2></h2>
+      <ul id="leaderboardList"></ul>
+    </div>
+  </div>
+
+  <script type="module">
+    // Import the Firebase functions from the CDN
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js";
+    import { getFirestore, collection, addDoc, getDocs, query, orderBy, limit, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js";
+    import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-auth.js";
+
+    // Firebase configuration
+    const firebaseConfig = {
+      apiKey: "AIzaSyDYtLmrzqTcZXxd5LDGSkJs76VzE0dvtBY",
+      authDomain: "qi-tester-game.firebaseapp.com",
+      databaseURL: "https://qi-tester-game-default-rtdb.firebaseio.com",
+      projectId: "qi-tester-game",
+      storageBucket: "qi-tester-game.appspot.com",
+      messagingSenderId: "951469093931",
+      appId: "1:951469093931:web:3436fe36657bf90102e66e",
+      measurementId: "G-74QJ79FM9B"
+    };
+
+    // Initialize Firebase
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const auth = getAuth(app);
+
+    // Sign in anonymously
+    signInAnonymously(auth)
+      .then(() => {
+        console.log("Autenticazione anonima riuscita.");
+      })
+      .catch((error) => {
+        console.error("Errore di autenticazione:", error);
+      });
+
+    const gridSize = 4;
+    let score = 0;
+    let timeLeft = 10;
+    let activeCell = null;
+    let gameInterval;
+    let timerInterval;
+    let correctClicks = 0;
+    let cellInterval = 1000;
+    const cellIntervalDecrease = 100;
+    const minCellInterval = 300;
+    const clicksToIncreaseSpeed = 10;
+    const gridElement = document.getElementById('grid');
+    const scoreElement = document.getElementById('score');
+    const timerElement = document.getElementById('timer');
+    const gameOverElement = document.getElementById('gameOver');
+    const startButton = document.getElementById('startButton');
+    const newGameButton = document.getElementById('newGameButton');
+    const backToMenuButton = document.getElementById('backToMenuButton');
+    const leaderboardList = document.getElementById('leaderboardList');
+
+    // Funzione per caricare la classifica da Firebase
+    async function loadLeaderboard() {
+      const querySnapshot = await getDocs(query(collection(db, 'qi_scores'), orderBy('iq', 'desc'), limit(10)));
+      leaderboardList.innerHTML = ''; // Svuota la classifica
+      querySnapshot.forEach((doc) => {
+        const data = doc.data();
+        const li = document.createElement('li');
+        li.textContent = `Level: ${data.level}, IQ: ${data.iq}`;
+        leaderboardList.appendChild(li);
+      });
+    }
+
+    // Funzione per salvare i punteggi su Firebase
+    function saveLeaderboard(iq) {
+      const user = auth.currentUser;
+      if (user) {
+        addDoc(collection(db, 'qi_scores'), {
+          userId: user.uid,
+          game: 'CellTap',  // Nome del gioco
+          qi: iq,
+          level: score,  // Usa il punteggio come livello
+          timestamp: serverTimestamp()
+        })
+        .then(() => {
+          console.log("Punteggio salvato correttamente.");
+          loadLeaderboard(); // Aggiorna la classifica dopo aver salvato
+        })
+        .catch((error) => {
+          console.error("Errore durante il salvataggio del punteggio:", error);
+        });
+      } else {
+        console.error("Utente non autenticato. Non è possibile salvare il punteggio.");
+      }
+    }
+
+    // Funzione per calcolare il QI basato sui tap
+    function calculateIQ() {
+      // Proporzione: 50 tap = 130 QI
+      let iq = (correctClicks * 130) / 50;
+
+      // Limitiamo il QI al range 50-200
+      if (iq < 50) {
+        return 50;
+      } else if (iq > 200) {
+        return 200;
+      } else {
+        return Math.round(iq);  // Arrotondiamo il valore finale
+      }
+    }
+
+    // Creazione della griglia di gioco
+    function createGrid() {
+      gridElement.innerHTML = '';
+      gridElement.style.gridTemplateColumns = `repeat(${gridSize}, 20vw)`;
+      gridElement.style.gridTemplateRows = `repeat(${gridSize}, 20vw)`;
+      for (let i = 0; i < gridSize * gridSize; i++) {
+        const cell = document.createElement('div');
+        cell.classList.add('cell');
+        cell.addEventListener('click', handleCellClick);
+        gridElement.appendChild(cell);
+      }
+      gridElement.style.display = 'grid'; // Mostra la griglia quando viene creata
+    }
+
+    // Gestione del click sulla cella
+    function handleCellClick(event) {
+      if (event.target === activeCell) {
+        score++;
+        correctClicks++;
+        scoreElement.textContent = `Score: ${score}`;
+        activeCell.classList.remove('active');
+        activeCell = null;
+        timeLeft += 1; // Aggiunge tempo per ogni click corretto
+        timerElement.textContent = `Time left: ${timeLeft}s`;
+
+        if (correctClicks % clicksToIncreaseSpeed === 0 && cellInterval > minCellInterval) {
+          cellInterval = Math.max(cellInterval - cellIntervalDecrease, minCellInterval);
+          clearInterval(gameInterval);
+          gameInterval = setInterval(activateRandomCell, cellInterval);
+        }
+      }
+    }
+
+    // Inizia il gioco
+    function startGame() {
+      score = 0;
+      timeLeft = 10;
+      correctClicks = 0;
+      scoreElement.textContent = `Score: ${score}`;
+      timerElement.textContent = `Time left: ${timeLeft}s`;
+      gameOverElement.style.display = 'none';
+      newGameButton.style.display = 'none';
+      startButton.style.display = 'none';
+      createGrid();
+      gameInterval = setInterval(activateRandomCell, cellInterval);
+      timerInterval = setInterval(updateTimer, 1000);
+    }
+
+    // Aggiornamento del timer
+    function updateTimer() {
+      timeLeft--;
+      timerElement.textContent = `Time left: ${timeLeft}s`;
+
+      if (timeLeft <= 0) {
+        clearInterval(gameInterval);
+        clearInterval(timerInterval);
+        gameOverElement.style.display = 'block';
+        gridElement.style.display = 'none';
+        newGameButton.style.display = 'inline';
+
+        const iq = calculateIQ();
+        alert(`Game over! Your score is: ${score}. Your estimated IQ is: ${iq}`);
+        saveLeaderboard(iq);  // Salva il QI su Firebase
+      }
+    }
+
+    // Attivazione di una cella casuale
+    function activateRandomCell() {
+      if (activeCell) {
+        activeCell.classList.remove('active');
+      }
+      const randomIndex = Math.floor(Math.random() * gridSize * gridSize);
+      const cells = document.querySelectorAll('.cell');
+      activeCell = cells[randomIndex];
+      activeCell.classList.add('active');
+    }
+
+    // Evento per il pulsante Start
+    startButton.addEventListener('click', function () {
+      startGame();
+      loadLeaderboard(); // Carica la classifica all'inizio del gioco
+    });
+
+    // Evento per il pulsante Start New Game
+    newGameButton.addEventListener('click', function () {
+      newGameButton.style.display = 'none';
+      startGame();
+    });
+
+    // Evento per il pulsante Back to Menu
+    backToMenuButton.addEventListener('click', function () {
+      window.location.href = 'index.html';
+    });
+
+    // Carica la classifica quando la pagina viene caricata
+    loadLeaderboard();
+
+  </script>
+
+</body>
+
+</html>
